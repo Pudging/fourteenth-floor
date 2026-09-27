@@ -1,8 +1,6 @@
 /** Display-only costumes. Match the same role text as the name pools. */
 export type CostumeKind = 'manager' | 'research' | 'review' | 'build' | 'test' | 'access' | 'api' | 'security' | 'quality' | 'systems' | 'generic';
 
-const hatted = new Set<CostumeKind>(['manager', 'research', 'build', 'test', 'security']);
-
 export const costumeColors: Record<CostumeKind, { hat: string; trim: string; bow: string }> = {
   manager: { hat: '#2e3338', trim: '#c4a36a', bow: '#1e2226' },
   research: { hat: '#3e5270', trim: '#c9b48a', bow: '#2c403c' },
@@ -38,9 +36,9 @@ function mixId(id: string) {
   return hash >>> 0;
 }
 
-/** Hats for a few roles. Everyone else holds coffee, and about half of them also wear a bow tie. */
+/** One accessory per worker, stable for that agent: half a hat, a quarter a bow tie, a quarter a coffee cup. */
 export function accessoriesFor(agent: { id?: string; role?: string; manager?: boolean }) {
   const kind = costumeFor(agent);
-  if (hatted.has(kind)) return { kind, hat: true, bow: kind === 'manager', coffee: false };
-  return { kind, hat: false, bow: mixId(String(agent.id || kind)) % 2 === 0, coffee: true };
+  const roll = mixId(String(agent.id || kind)) % 4;
+  return { kind, hat: roll < 2, bow: roll === 2, coffee: roll === 3 };
 }

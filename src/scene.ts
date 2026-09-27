@@ -235,15 +235,15 @@ export class OfficeScene {
     const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
     const badge = new THREE.Mesh(new THREE.PlaneGeometry(.4, .13), new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false })); badge.position.set(0, -.16, .481); body.add(badge);
     const backBadge = badge.clone(); backBadge.rotation.y = Math.PI; backBadge.position.z = -.481; body.add(backBadge);
-    this.wear(g, body, a);
+    this.wear(body, a);
     g.userData.eyes = eyes; g.userData.pupils = pupils; g.userData.body = body;
     return g;
   }
-  wear(outer: THREE.Group, body: THREE.Group, agent: Agent) {
+  wear(body: THREE.Group, agent: Agent) {
     const { kind, hat, bow, coffee } = accessoriesFor(agent);
     const colors = costumeColors[kind];
     if (hat) {
-      const crown = new THREE.Group(); crown.position.y = 1.92; outer.add(crown);
+      const crown = new THREE.Group(); crown.position.y = .42; body.add(crown);
       const brim = (r = .42, y = .02) => this.cylinder(crown, 0, y, 0, r, .04, colors.hat);
       if (kind === 'manager') { brim(.46); this.cylinder(crown, 0, .18, 0, .2, .28, colors.hat, .24); this.cylinder(crown, 0, .08, 0, .252, .05, colors.trim); }
       else if (kind === 'research') { this.sphere(crown, 0, .12, 0, .28, colors.hat, .5); this.box(crown, 0, .03, .3, .38, .03, .22, colors.hat); }
