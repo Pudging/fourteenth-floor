@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { nameRoom } from './names.mjs';
 export const uid = () => randomUUID();
 export const DEFAULT_MODEL = 'gpt-6-sol';
-export const palette = ['#da7957', '#6d8ea0', '#b69a57', '#8b83a4', '#689b83', '#bd7895'];
+export const palette = ['#ff7a3c', '#3ec4e6', '#f2c22e', '#c47af2', '#2fce8a', '#f08ab4'];
 export function agent(name, role, task, index = 0, extra = {}) {
   return { id: uid(), name, role, task, model: DEFAULT_MODEL, status: 'idle', color: palette[index % palette.length], progress: 0, events: [], plan: [], tokens: 0, ...extra };
 }
@@ -21,19 +22,22 @@ export function evidenceFrom(a) {
   return evidence.slice(-8);
 }
 export function seed(cwd) {
-  const manager = agent('Morgan', 'Manager', 'Coordinate the office launch', 4, { manager: true, model: 'gpt-6-astra', status: 'working', progress: 64 });
+  const manager = agent('', 'Manager', 'Coordinate the office launch', 4, { manager: true, model: 'gpt-6-astra', status: 'working', progress: 64 });
   const agents = [manager,
-    agent('Alex', 'Frontend', 'Build the project switcher', 0, { model: 'gpt-5.6-sol', status: 'working', progress: 72 }),
-    agent('Jules', 'Research', 'Map the Codex app-server events', 1, { model: 'gpt-5.6-terra', status: 'talking', progress: 88 }),
-    agent('Sam', 'Quality', 'Verify room navigation', 2, { model: 'gpt-5.6-luna', status: 'working', progress: 46 }),
-    agent('Robin', 'Systems', 'Design the task handoff protocol', 3, { model: 'gpt-5.6-terra', status: 'talking', progress: 61 })];
+    agent('', 'Frontend', 'Build the project switcher', 0, { model: 'gpt-5.6-sol', status: 'working', progress: 72 }),
+    agent('', 'Research', 'Map the Codex app-server events', 1, { model: 'gpt-5.6-terra', status: 'talking', progress: 88 }),
+    agent('', 'Quality', 'Verify room navigation', 2, { model: 'gpt-5.6-luna', status: 'working', progress: 46 }),
+    agent('', 'Systems', 'Design the task handoff protocol', 3, { model: 'gpt-5.6-terra', status: 'talking', progress: 61 })];
   agents.forEach(a => {
     a.plan = [{ step: 'Inspect project context', status: 'completed' }, { step: a.task, status: 'inProgress' }, { step: 'Verify and hand off', status: 'pending' }];
     event(a, 'update', a.manager ? 'I split the launch into independent tasks. Frontend owns the switcher; research is checking the event contract.' : `Working on: ${a.task}. This is a sample activity in the demo office.`);
   });
+  nameRoom({ agents });
   const workItems = agents.map(a => workItem(a.manager ? 'Coordinate the office launch' : a.task, a.task, { agentId: a.id, status: a.status === 'talking' ? 'working' : a.status, acceptanceCriteria: a.manager ? ['Specialists have bounded assignments', 'Results return with evidence'] : ['Return a concrete, evidence-backed result'] }));
   workItems.slice(2).forEach(item => { item.dependsOn = [workItems[1].id]; });
-  return { version: 1, rooms: [{ id: uid(), name: 'The agent office', path: cwd, tag: 'WORKSPACE 01', demo: true, goal: 'Build a better place to work with agents.', orchestrationVersion: 1, missionStartedAt: Date.now(), workItems, agents, messages: [{ id: uid(), from: 'Jules', to: 'Robin', text: 'The event stream includes task plans and tool actions. I’m sending the contract over.', time: Date.now() }], skills: ['office-manager', 'office-handoff', 'office-review'], budget: 3, paused: false }], approvals: [] };
+  const research = agents.find(a => a.role === 'Research');
+  const systems = agents.find(a => a.role === 'Systems');
+  return { version: 1, rooms: [{ id: uid(), name: 'The agent office', path: cwd, tag: 'WORKSPACE 01', demo: true, goal: 'Build a better place to work with agents.', orchestrationVersion: 1, missionStartedAt: Date.now(), workItems, agents, messages: [{ id: uid(), fromId: research.id, toId: systems.id, from: research.name, to: systems.name, text: 'The event stream includes task plans and tool actions. I’m sending the contract over.', time: Date.now() }], skills: ['office-manager', 'office-handoff', 'office-review'], budget: 3, paused: false }], approvals: [] };
 }
 export function roomBy(state, id) { const r = state.rooms.find(r => r.id === id); if (!r) throw new Error('Room not found'); return r; }
 export function agentBy(room, id) { const a = room.agents.find(a => a.id === id); if (!a) throw new Error('Agent not found'); return a; }

@@ -42,7 +42,7 @@ export function summarizeOffice(room, includeEvidence = false) {
     roomId: room.id, name: room.name, goal: room.goal, paused: room.paused,
     tasks: room.workItems.map(({ evidence, ...item }) => ({ ...item, evidenceCount: evidence.length,
       ...(includeEvidence ? { evidence: evidence.slice(-8).map(e => ({ ...e, text: e.text.slice(0, 4000), truncated: e.text.length > 4000 })), omittedReceipts: Math.max(0, evidence.length - 8) } : {}) })),
-    agents: room.agents.filter(a => a.status !== 'ejected').map(a => ({ id: a.id, name: a.name, model: a.effectiveModel || a.model, modelSource: a.modelSource, provider: a.provider || 'codex', assignmentOpen: !!a.turnId, status: a.status, task: a.task, latest: a.events.slice(-2).map(e => ({ kind: e.kind, text: e.text.slice(-2000), time: e.time })) })),
+    agents: room.agents.filter(a => a.status !== 'ejected').map(a => ({ id: a.id, name: a.name, title: a.title, model: a.effectiveModel || a.model, modelSource: a.modelSource, provider: a.provider || 'codex', assignmentOpen: !!a.turnId, status: a.status, task: a.task, latest: a.events.slice(-2).map(e => ({ kind: e.kind, text: e.text.slice(-2000), time: e.time })) })),
     handoffs: room.messages.slice(-3).map(m => ({ ...m, text: m.text.slice(0, 2000) }))
   };
 }

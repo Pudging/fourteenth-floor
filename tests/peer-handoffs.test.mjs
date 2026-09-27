@@ -38,7 +38,8 @@ test('applied findings link exact receipts atomically and survive checkpoint bra
 });
 test('scripted demo shows a specialist finding and later acknowledgment without verifying its task',()=>{
   const room=createDemo('.');stepDemo(room);const message=room.messages.find(m=>m.kind==='finding');
-  assert.equal(message.from,'Nova');assert.equal(message.to,'Jules');assert.equal(message.status,'delivered');
+  const scout=room.agents.find(a=>a.id===message.fromId),tester=room.agents.find(a=>a.id===message.toId);
+  assert.equal(message.from,scout.name);assert.equal(message.to,tester.name);assert.match(scout.role,/accessib/i);assert.match(tester.role,/test design/i);assert.equal(message.status,'delivered');
   stepDemo(room);assert.equal(message.status,'acknowledged');assert.notEqual(room.workItems.find(t=>t.id===message.workItemId).status,'done');
 });
 test('peer handoff validates scope, links replies, separates delivery from acknowledgment and bounds traffic',()=>{

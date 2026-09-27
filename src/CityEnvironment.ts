@@ -23,8 +23,8 @@ export class CityEnvironment {
     this.sky.scale.setScalar(2400);
     const sun = new THREE.Vector3(-.6,.48,-.5).normalize();
     this.sky.material.uniforms.sunPosition.value.copy(sun);
-    this.sky.material.uniforms.turbidity.value = 3.8;
-    this.sky.material.uniforms.rayleigh.value = 1.25;
+    this.sky.material.uniforms.turbidity.value = 2.9;
+    this.sky.material.uniforms.rayleigh.value = 1.35;
     this.sky.material.uniforms.mieCoefficient.value = .004;
     this.sky.material.uniforms.mieDirectionalG.value = .82;
     this.root.add(this.sky);
@@ -34,13 +34,13 @@ export class CityEnvironment {
     this.environment = pmrem.fromScene(skyScene, .02, .1, 3000);
     pmrem.dispose();
     scene.environment = this.environment.texture;
-    scene.environmentIntensity = .55;
-    scene.fog = new THREE.Fog('#c0cbd0', 70, 470);
+    scene.environmentIntensity = .72;
+    scene.fog = new THREE.Fog('#c9d4da', 95, 520);
 
     let seed=1400926;
     const random=()=> { seed=(Math.imul(seed,1664525)+1013904223)>>>0; return seed/4294967296; };
     const blocks:Block[]=[], roofs:Block[]=[], trim:Block[]=[], greens:Block[]=[];
-    const palette=['#93a4aa','#8e9b9d','#b6b3a7','#a5a7a1','#697d86','#c6c2b5'];
+    const palette=['#b9cbd2','#b6c6c8','#d8d4c6','#cdd0c8','#8eabb6','#e6e1d2'];
     const building=(x:number,z:number,w:number,d:number,h:number,style:number)=>{
       const color=palette[style%palette.length];
       blocks.push({x,z,w,d,h,y:GROUND+h/2,color});
@@ -60,7 +60,7 @@ export class CityEnvironment {
       }
     };
     // The office is a genuine part of the city, with its occupied floor at y=0.
-    blocks.push({x:0,z:0,w:21.6,d:17.6,h:43.65,y:GROUND+43.65/2,color:'#84959b'});
+    blocks.push({x:0,z:0,w:21.6,d:17.6,h:43.65,y:GROUND+43.65/2,color:'#aec2c9'});
     this.count++;
     for(let bx=-6;bx<=6;bx++) for(let bz=-6;bz<=6;bz++) {
       if(bx===0&&bz===0)continue;
@@ -173,18 +173,18 @@ export class CityEnvironment {
         float room=cityHash(floor(cell)+buildingSeed);
         float blinds=step(.74,room)*smoothstep(.28,.31,pane.y);
         float lit=step(.93,room)*glass;
-        vec3 glassTint=mix(vec3(.18,.29,.34),vec3(.32,.43,.47),room);
+        vec3 glassTint=mix(vec3(.3,.44,.52),vec3(.48,.6,.66),room);
         glassTint=mix(glassTint,vec3(.62,.59,.51),blinds*.32);
         float spandrel=1.-smoothstep(.17,.19,pane.y);
         glassTint*=1.-spandrel*.3*(1.-masonry);
         float insetShadow=smoothstep(frame,frame+.1,pane.x)*smoothstep(.18,.27,pane.y);
         glassTint*=mix(1.,.68+.32*insetShadow,masonry);
-        diffuseColor.rgb*=mix(mix(vec3(.55),vec3(.95,.9,.8),masonry),glassTint,glass);
-        totalEmissiveRadiance+=vec3(1.,.65,.3)*lit*.13;`);
+        diffuseColor.rgb*=mix(mix(vec3(.68),vec3(.92,.88,.8),masonry),glassTint,glass);
+        totalEmissiveRadiance+=vec3(1.,.68,.34)*lit*.22;`);
       shader.fragmentShader=shader.fragmentShader.replace('#include <roughnessmap_fragment>','#include <roughnessmap_fragment>\nroughnessFactor=mix(.64,.22,glass);');
       shader.fragmentShader=shader.fragmentShader.replace('#include <metalnessmap_fragment>','#include <metalnessmap_fragment>\nmetalnessFactor=mix(.16,.48,glass);');
     };
-    material.customProgramCacheKey=()=> 'fourteenth-city-facade-v2';
+    material.customProgramCacheKey=()=> 'fourteenth-city-facade-v3';
     return material;
   }
 
@@ -206,7 +206,7 @@ export class CityEnvironment {
   }
 
   makeGround() {
-    const groundMaterial=new THREE.MeshStandardMaterial({color:'#a5a49a',roughness:.96});
+    const groundMaterial=new THREE.MeshStandardMaterial({color:'#b7b6a6',roughness:.96});
     groundMaterial.onBeforeCompile=shader=>{
       shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>\nvarying vec3 vStreet;');
       shader.vertexShader=shader.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\nvStreet=(modelMatrix*vec4(position,1.)).xyz;');
@@ -215,8 +215,8 @@ export class CityEnvironment {
         vec2 lane=abs(mod(vStreet.xz,50.)-25.);
         float road=1.-smoothstep(4.5,4.7,min(lane.x,lane.y));
         float curb=1.-smoothstep(6.5,6.7,min(lane.x,lane.y));
-        vec3 surface=mix(vec3(.44,.45,.4),vec3(.66,.66,.6),curb);
-        surface=mix(surface,vec3(.20,.24,.25),road);
+        vec3 surface=mix(vec3(.5,.51,.45),vec3(.72,.72,.64),curb);
+        surface=mix(surface,vec3(.26,.3,.32),road);
         float dashX=(1.-smoothstep(.045,.12,lane.x))*step(.48,fract(vStreet.z*.12));
         float dashZ=(1.-smoothstep(.045,.12,lane.y))*step(.48,fract(vStreet.x*.12));
         surface=mix(surface,vec3(.75,.72,.53),max(dashX,dashZ)*road*.8);
@@ -264,7 +264,7 @@ export class CityEnvironment {
     const generator=new THREE.PMREMGenerator(renderer);
     const captured=generator.fromCubemap(target.texture);
     this.environment.dispose();this.environment=captured;
-    scene.environment=captured.texture;scene.environmentIntensity=.8;
+    scene.environment=captured.texture;scene.environmentIntensity=.85;
     generator.dispose();target.dispose();
   }
 

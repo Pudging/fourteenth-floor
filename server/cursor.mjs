@@ -2,6 +2,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { featureUrl } from './feature-link.mjs';
 import { agent, event, workItem, uid } from './domain.mjs';
+import { claimIdentity } from './names.mjs';
 import { record } from './orchestration.mjs';
 import { trimEvidence, identifyEvidence } from './evidence.mjs';
 
@@ -21,10 +22,10 @@ export function createCursorDesk({ state, changed, isStarting = () => false }) {
     if (sameProject(room).some(r => r.capturing)) throw new Error('Wait for the checkpoint to finish before assigning work.');
     assertAvailable(room);
     if (sameProject(room).some(r => r.agents.some(a => a.turnId || isStarting(a.id)))) throw new Error('Wait for the active office work to finish before Cursor takes ownership.');
-    const worker = agent('Cursor', 'Implementation', input.task, room.agents.length, { provider: 'cursor', model: input.model, modelSource: 'cursor-reported', status: 'working', turnId: uid() });
+    const worker = agent('', 'Implementation', input.task, room.agents.length, { provider: 'cursor', model: input.model, modelSource: 'cursor-reported', status: 'working', turnId: uid() });
     const item = workItem(input.task.split('\n')[0].slice(0, 120), input.task, { agentId: worker.id, status: 'working', acceptanceCriteria: input.acceptanceCriteria, requiredEvidence: ['diff', 'test'], checks: [], files: [] });
     room.paused = false;
-    room.agents.push(worker); room.workItems.push(item); room.goal ||= input.task;
+    room.agents.push(worker); claimIdentity(worker, room); room.workItems.push(item); room.goal ||= input.task;
     event(worker, 'user', input.task); event(worker, 'system', 'Execution stays in Cursor. Model, progress and evidence are reported through MCP; verify results before accepting the task.');
     record(room, 'Cursor took implementation ownership', 'work'); changed();
     return { roomId: room.id, agentId: worker.id, workItemId: item.id, instruction: 'Publish concise progress with office_cursor_update. After execution has finished or stopped, call office_cursor_finish. Fourteenth cannot interrupt Cursor execution.' };
@@ -59,7 +60,7 @@ export function createCursorDesk({ state, changed, isStarting = () => false }) {
     worker.talkingUntil = Date.now() + 18000;
     const manager = room.agents.find(a => a.manager && a.status !== 'ejected');
     if (manager) manager.talkingUntil = worker.talkingUntil;
-    room.messages.push({ id: uid(), from: 'Cursor', to: manager?.name || 'Office', text: input.summary, time: Date.now() });
+    room.messages.push({ id: uid(), fromId: worker.id, from: worker.name, toId: manager?.id, to: manager?.name || 'Office', text: input.summary, time: Date.now() });
     record(room, `Cursor released assignment: ${input.outcome}`, 'handoff'); changed();
     return { workItemId: item.id, status: item.status, verified: false, instruction: 'Execution is reported finished. Inspect the diff and reproduce the reported checks before accepting this task.' };
   }

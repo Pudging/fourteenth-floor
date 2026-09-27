@@ -8,9 +8,10 @@ import { checkWorkspace } from './workspace-check.mjs';
 import { identifyEvidence, commandWorkspace, refreshReview, isTestCommand, trimEvidence, assertReviewVersion } from './evidence.mjs';
 import { createCursorDesk } from './cursor.mjs';
 import { ticketFields, assignedTicket, focusTicket, editTicket, archiveTicket } from './tickets.mjs';
-import { peerTools, peerInstructions, inbox, queueHandoff, handoffEnvelope, delivered, acknowledge, transferInbox } from './peer-handoffs.mjs';
+import { peerTools, peerInstructions, inbox, queueHandoff, handoffEnvelope, presentHandoffs, delivered, acknowledge, transferInbox } from './peer-handoffs.mjs';
 import { createTeam } from './team.mjs';
 import { seed, uid, agent, event, workItem, evidenceFrom, roomBy, agentBy, active, canDelegate, handoff, publicItem } from './domain.mjs';
+import { claimIdentity, nameStoredRoom, replacementName } from './names.mjs';
 import { z } from 'zod';
 import { featureUrl } from './feature-link.mjs';
 import { permissionMode, permissionsFor, permissionKey } from './permissions.mjs';
@@ -29,16 +30,16 @@ for (const r of state.rooms) {
   if (r.orchestrationVersion !== 1) {
     let visibleAgents = r.agents.filter(a => a.status !== 'ejected');
     if (r.demo && !visibleAgents.length) {
-      const manager = agent('Morgan', 'Manager', r.goal || 'Coordinate the office launch', 4, { manager: true, model: 'gpt-6-astra', status: 'working', progress: 24 });
-      const research = agent('Alex', 'Research', 'Inspect the project and identify the first dependencies', 0, { model: 'gpt-5.6-sol', status: 'working', progress: 18 });
-      const review = agent('Sam', 'Review', 'Define evidence for successful completion', 2, { model: 'gpt-5.6-luna', status: 'working', progress: 12 });
+      const manager = agent('', 'Manager', r.goal || 'Coordinate the office launch', 4, { manager: true, model: 'gpt-6-astra', status: 'working', progress: 24 });
+      const research = agent('', 'Research', 'Inspect the project and identify the first dependencies', 0, { model: 'gpt-5.6-sol', status: 'working', progress: 18 });
+      const review = agent('', 'Review', 'Define evidence for successful completion', 2, { model: 'gpt-5.6-luna', status: 'working', progress: 12 });
       r.agents.push(manager, research, review); visibleAgents = [manager, research, review]; r.paused = false;
     }
     r.workItems = visibleAgents.map(a => workItem(a.task, a.task, { agentId: a.id, status: a.status === 'done' ? 'review' : active(a) ? 'working' : 'queued', acceptanceCriteria: [a.manager ? 'The requested outcome is implemented and verified' : 'Return a concrete result with evidence'] }));
     r.missionStartedAt ||= Date.now(); r.orchestrationVersion = 1;
   }
   if (!r.demo) for (const a of r.agents) if (active(a) && a.provider !== 'cursor') { a.status = 'paused'; a.turnId = null; event(a, 'system', 'Companion restarted. Resume explicitly after inspecting the latest work.'); const item = assignedTicket(r,a.id); if (item && item.status!=='done' && !item.archived) { item.status = 'blocked'; item.blocker = 'Companion restarted. Resume this ticket to continue.'; item.updatedAt = Date.now(); } }
-  delete r.stopping;initOffice(r);
+  delete r.stopping;initOffice(r);nameStoredRoom(r);
 }
 const clients = new Set();
 const codex = new Codex();
@@ -105,7 +106,7 @@ async function scheduleWorkers(room) {
       const worker=room.agents.find(a=>a.id===item.agentId);if(!worker || worker.provider==='cursor' || worker.status==='ejected' || worker.turnId || startingAgents.has(worker.id))continue;
       if(worker.manager && worker.currentWorkItemId!==item.id)continue;
       const wait=waitingReason(room,item);
-      if(wait){item.blocker=wait.reason; if(wait.files.length && !item.coordination){item.coordination=wait;worker.talkingUntil=Date.now()+18000;for(const id of wait.tasks){const owner=room.agents.find(a=>a.id===room.workItems.find(t=>t.id===id)?.agentId);if(owner)owner.talkingUntil=worker.talkingUntil;}room.messages.push({id:uid(),from:worker.name,to:'Manager',text:`Shared files: ${wait.files.join(', ')}. Assignment held until its owner finishes.`,time:Date.now()});record(room,'Shared files: assignment held for coordination','coordination');}continue;}
+      if(wait){item.blocker=wait.reason; if(wait.files.length && !item.coordination){item.coordination=wait;worker.talkingUntil=Date.now()+18000;for(const id of wait.tasks){const owner=room.agents.find(a=>a.id===room.workItems.find(t=>t.id===id)?.agentId);if(owner)owner.talkingUntil=worker.talkingUntil;}room.messages.push({id:uid(),fromId:worker.id,from:worker.name,toId:room.agents.find(a=>a.manager && a.status!=='ejected')?.id,to:room.agents.find(a=>a.manager && a.status!=='ejected')?.name || 'Manager',text:`Shared files: ${wait.files.join(', ')}. Assignment held until its owner finishes.`,time:Date.now()});record(room,'Shared files: assignment held for coordination','coordination');}continue;}
       if(!worker.manager && room.agents.filter(a=>!a.manager && active(a)).length>=room.budget)continue;
       item.coordination=null;item.blocker='';
       try {focusTicket(room,worker,item);await startAgent(room,worker,item.description);}catch(e){item.status='blocked';item.blocker=e.message;}
@@ -143,7 +144,7 @@ async function startAgentReserved(room, a, prompt) {
     if (!a.threadId) {
       if(a.handoffPacket)prompt+=`\nSaved context (inspect current files before continuing):\n${JSON.stringify(a.handoffPacket)}`;
       const instructions = (room.skills || skillNames).map(n => skillText[n]).filter(Boolean).join('\n\n');
-      const result = await codex.call('thread/start', { cwd: room.path, model, sandbox: access.sandbox, approvalPolicy: access.approvalPolicy, developerInstructions: `${instructions}\nYou are ${a.name}, ${a.role} in Fourteenth. ${a.manager ? `${access.canWrite?'You are the sole file writer.':'You are a read-only manager. Inspect, plan and delegate reviews; do not edit files or claim implementation is complete.'} Use office_delegate proactively for independent read-only work at project kickoff; do not wait for the user to ask for subagents. Maximum ${room.budget} concurrent workers. Use office_message for handoffs. Use office_update_work to keep the mission board accurate and attach concrete verification before marking work done. Declare affected files through office_update_work before implementation and include file scopes in office_delegate. Set dependencies to sequence implementation and review; inspect queued blockers before resequencing. Do not use other agent spawning tools; the office manages the concurrency budget.` : 'You are a read-only specialist. Return evidence with file paths and concrete findings. Do not spawn additional agents or edit files. Report results to the manager.'}\n${peerInstructions}\nOnly show concise progress, actions, plans and results.`, dynamicTools: a.manager ? dynamicTools : dynamicTools.filter(t=>['office_status','office_message','office_acknowledge'].includes(t.name)), serviceName: 'fourteenth' });
+      const result = await codex.call('thread/start', { cwd: room.path, model, sandbox: access.sandbox, approvalPolicy: access.approvalPolicy, developerInstructions: `${instructions}\nYou are ${a.name}${a.title ? `, ${a.title}` : ''}, ${a.role} in Fourteenth. Your id is ${a.id}. Refer to other agents by id. ${a.manager ? `${access.canWrite?'You are the sole file writer.':'You are a read-only manager. Inspect, plan and delegate reviews; do not edit files or claim implementation is complete.'} Use office_delegate proactively for independent read-only work at project kickoff; do not wait for the user to ask for subagents. Maximum ${room.budget} concurrent workers. Use office_message for handoffs. Use office_update_work to keep the mission board accurate and attach concrete verification before marking work done. Declare affected files through office_update_work before implementation and include file scopes in office_delegate. Set dependencies to sequence implementation and review; inspect queued blockers before resequencing. Do not use other agent spawning tools; the office manages the concurrency budget.` : 'You are a read-only specialist. Return evidence with file paths and concrete findings. Do not spawn additional agents or edit files. Report results to the manager.'}\n${peerInstructions}\nOnly show concise progress, actions, plans and results.`, dynamicTools: a.manager ? dynamicTools : dynamicTools.filter(t=>['office_status','office_message','office_acknowledge'].includes(t.name)), serviceName: 'fourteenth' });
       if(result.sandbox?.type !== (access.canWrite?'workspaceWrite':'readOnly'))throw new Error('Codex did not grant the requested project permissions. Refresh Connect Codex and complete sandbox setup before resuming.');
       a.threadId = result.thread.id; a.protocolVersion=5;a.threadPermissionKey=accessKey; loadedThreads.add(a.threadId);
     } else if (!loadedThreads.has(a.threadId)) { const resumed=await codex.call('thread/resume', { threadId: a.threadId, sandbox:access.sandbox, approvalPolicy:access.approvalPolicy });if(resumed.sandbox?.type !== (access.canWrite?'workspaceWrite':'readOnly'))throw new Error('Resumed session permissions do not match this office. Reconnect before continuing.');loadedThreads.add(a.threadId); }
@@ -151,7 +152,7 @@ async function startAgentReserved(room, a, prompt) {
     const requestedServiceTier = policy.serviceTier;
     const pendingInbox = inbox(room,a.id);
     a.peerMessagesThisTurn = 0;
-    const instructions=`${prompt}\n${team.view(room) ? 'Paired teammate office (shared context, separate checkout): '+JSON.stringify(team.view(room))+'\nInspect their work scopes and use office_message with their agent IDs for relevant dependencies or overlapping files. Coordinate before editing overlapping files. Do not start or control their agents.\n' : ''}Project folder: ${room.path}. Set the command working directory explicitly. Before searching, verify that the shell is in this project; if directory access fails, report the blocker instead of searching the drive root.\n${a.manager ? teamInstructions(room) : ''}\nCurrent file access: ${access.canWrite?'Manager may edit project files.':'Read only. Inspect and report; do not edit files.'}\nActive ticket: ${assigned?.id || 'none'}.\n${pendingInbox.length ? handoffEnvelope(pendingInbox) : ''}\n\nOffice mode: ${room.mode}. Turn time budget: ${policy.minutes} minutes. Current work items: ${JSON.stringify(room.workItems.filter(t=>!t.archived).map(({id,title,status,acceptanceCriteria,requiredEvidence,dependsOn})=>({id,title,status,acceptanceCriteria,requiredEvidence,dependsOn})))}\nPublish concise evidence and next steps. Run each test/check as a standalone command with an explicit working directory inside this project; do not combine checks with other shell commands. After source edits, rerun previously recorded checks so every latest result matches the current source. Completion requires checks with zero-based criterion indices and typed receipts through office_update_work; a plain success message cannot complete a task.`;
+    const instructions=`${prompt}\n${team.view(room) ? 'Paired teammate office (shared context, separate checkout): '+JSON.stringify(team.view(room))+'\nInspect their work scopes and use office_message with their agent IDs for relevant dependencies or overlapping files. Coordinate before editing overlapping files. Do not start or control their agents.\n' : ''}Project folder: ${room.path}. Set the command working directory explicitly. Before searching, verify that the shell is in this project; if directory access fails, report the blocker instead of searching the drive root.\n${a.manager ? teamInstructions(room) : ''}\nCurrent file access: ${access.canWrite?'Manager may edit project files.':'Read only. Inspect and report; do not edit files.'}\nActive ticket: ${assigned?.id || 'none'}.\n${pendingInbox.length ? handoffEnvelope(presentHandoffs(room, pendingInbox)) : ''}\n\nOffice mode: ${room.mode}. Turn time budget: ${policy.minutes} minutes. Current work items: ${JSON.stringify(room.workItems.filter(t=>!t.archived).map(({id,title,status,acceptanceCriteria,requiredEvidence,dependsOn})=>({id,title,status,acceptanceCriteria,requiredEvidence,dependsOn})))}\nPublish concise evidence and next steps. Run each test/check as a standalone command with an explicit working directory inside this project; do not combine checks with other shell commands. After source edits, rerun previously recorded checks so every latest result matches the current source. Completion requires checks with zero-based criterion indices and typed receipts through office_update_work; a plain success message cannot complete a task.`;
     const result = await codex.call('turn/start', { threadId: a.threadId, input: [{ type: 'text', text: instructions }], model, effort: policy.effort || null, serviceTier: requestedServiceTier });
     if(pendingInbox.length) delivered(room,a,pendingInbox);
     a.effectiveModel=model || 'Account default'; a.effectiveEffort=policy.effort || 'Model default';a.deadline=Date.now()+policy.minutes*60000;
@@ -244,7 +245,7 @@ async function handleNotification(msg) {
     if (!a.manager && a.status === 'done') {
       const manager = room.agents.find(m => m.manager && m.status !== 'ejected');
       const text = `${a.name} finished ${a.task}.\n${a.events.filter(e => e.kind === 'update').at(-1)?.text || 'No final message returned.'}`;
-      room.messages.push({ id: uid(), from: a.name, to: manager?.name || 'Office', text, time: Date.now() }); room.messages = room.messages.filter((m,i,all)=>i>=all.length-80 || m.disposition==='investigate' || m.evidenceLinks?.length || (m.status && m.status!=='acknowledged'));
+      room.messages.push({ id: uid(), fromId: a.id, from: a.name, toId: manager?.id, to: manager?.name || 'Office', text, time: Date.now() }); room.messages = room.messages.filter((m,i,all)=>i>=all.length-80 || m.disposition==='investigate' || m.evidenceLinks?.length || (m.status && m.status!=='acknowledged'));
       a.talkingUntil = Date.now() + 9000; if (manager) manager.talkingUntil = Date.now() + 9000;
       if (manager) {
         room.pendingHandoffs = [...(room.pendingHandoffs || []), text];
@@ -279,18 +280,18 @@ codex.on('request', async msg => {
         const parsed = z.object({ name: z.string().min(1).max(40), task: z.string().min(1).max(12000), role: z.string().min(1).max(40), acceptanceCriteria: z.array(z.string().min(1).max(500)).max(8).optional(), dependsOn: z.array(z.string()).max(8).optional(), files:z.array(z.string().trim().min(1).max(500)).max(20).optional(),requiredEvidence:z.array(z.enum(['diff','test','screenshot','log'])).optional() }).parse(args);
         const known = new Set(room.workItems.map(item => item.id));
         if (parsed.dependsOn?.some(id => !known.has(id))) throw new Error('A dependency does not match a visible work item');
-        if(room.workItems.filter(t=>t.status!=='done' && !t.archived).length>=40)throw new Error('Finish existing assignments before creating more'); const worker = agent(parsed.name, parsed.role, parsed.task, room.agents.length); room.agents.push(worker);
+        if(room.workItems.filter(t=>t.status!=='done' && !t.archived).length>=40)throw new Error('Finish existing assignments before creating more'); const worker = agent('', parsed.role, parsed.task, room.agents.length); room.agents.push(worker); claimIdentity(worker, room);
         const item = workItem(parsed.task.split('\n')[0].slice(0, 120), parsed.task, { agentId: worker.id, status: 'queued', acceptanceCriteria: parsed.acceptanceCriteria || ['Return findings with file references'], dependsOn: parsed.dependsOn || [], files:parsed.files || [], requiredEvidence:parsed.requiredEvidence || ['log'], checks:[] }); room.workItems.push(item);
         record(room, `Assigned: ${item.title}`, 'plan'); await scheduleWorkers(room);
         output = { agentId: worker.id, workItemId: item.id, status: worker.status };
       } else if (p.tool === 'office_status') {
         identifyEvidence(room); const messages=inbox(room,a.id); if(messages.length)delivered(room,a,messages);
-        output = { selfId:a.id, inbox:messages, teammate:team.view(room), workItems:room.workItems.filter(t=>!t.archived), workers:room.agents.filter(w=>w.status!=='ejected').map(w=>({id:w.id,name:w.name,role:w.role,manager:!!w.manager,status:w.status,task:w.task,latest:w.events.at(-1)?.text})) };
+        output = { selfId:a.id, inbox:messages, teammate:team.view(room), workItems:room.workItems.filter(t=>!t.archived), workers:room.agents.filter(w=>w.status!=='ejected').map(w=>({id:w.id,name:w.name,title:w.title,role:w.role,manager:!!w.manager,status:w.status,task:w.task,latest:w.events.at(-1)?.text})) };
       } else if (p.tool === 'office_message') {
         const message=team.queue(room,a,args) || queueHandoff(room,a,args); changed();
         const target=room.agents.find(target=>target.id===message.toId);
         if(target && !room.paused && target.turnId && target.status==='working' && target.provider!=='cursor' && !startingAgents.has(target.id)) {
-          try { await codex.call('turn/steer',{threadId:target.threadId,expectedTurnId:target.turnId,input:[{type:'text',text:handoffEnvelope([message])}]});delivered(room,target,[message]); }
+          try { await codex.call('turn/steer',{threadId:target.threadId,expectedTurnId:target.turnId,input:[{type:'text',text:handoffEnvelope(presentHandoffs(room,[message]))}]});delivered(room,target,[message]); }
           catch(e) {message.deliveryError='Current turn ended or delivery failed. Waiting for the next turn.';event(a,'system',`Handoff queued for ${target.name}: ${e.message}`);}
         }
         record(room,`${a.name} -> ${message.toOwner ? message.toOwner+' / ' : ''}${message.to}: ${message.status}`,'handoff');
@@ -391,8 +392,8 @@ app.post('/api/rooms/:id/work/:workId/assign',wrap(async req=>{
   const manager=room.agents.find(a=>a.manager && a.status!=='ejected');
   const available=()=>{if(!room.workItems.includes(item) || (manager && !room.agents.includes(manager)))throw new Error('Office changed. Reopen this ticket.');if(item.agentId || item.status==='done' || item.archived)throw new Error('This ticket is already assigned, archived or verified.');if(room.capturing)throw new Error('Wait for the checkpoint to finish.');cursor.assertAvailable(room);if(role==='Implementation' && (!manager || manager.status==='ejected' || manager.turnId || startingAgents.has(manager.id)))throw new Error('Pause the current manager assignment before starting this ticket.');};
   available();if(!room.demo)await ensureConnected();available();
-  const worker=role==='Implementation'?manager:agent(`${role} ${room.agents.filter(a=>!a.manager).length+1}`,role,`${item.title}\n${item.description}`,room.agents.length);
-  if(!worker.manager)room.agents.push(worker);
+  const worker=role==='Implementation'?manager:agent('',role,`${item.title}\n${item.description}`,room.agents.length);
+  if(!worker.manager){room.agents.push(worker);claimIdentity(worker,room);}
   focusTicket(room,worker,item);item.updatedAt=Date.now();item.status='queued';item.blocker='';
   if(worker.manager){item.requiredEvidence=[...new Set([...(item.requiredEvidence||[]),'diff','test'])];room.goal ||= item.title;}
   record(room,`Assigned ${item.title} to ${worker.name}`,'plan');changed();
@@ -450,8 +451,9 @@ app.post('/api/rooms', wrap(async req => {
   const body = z.object({ name: z.string().trim().min(1).max(60), path: z.string().trim().min(1).max(500), demo: z.boolean().default(false) }).parse(req.body);
   if (!path.isAbsolute(body.path)) throw new Error('Enter an absolute folder path.');
   const actual = await realpath(body.path); if (!(await stat(actual)).isDirectory()) throw new Error('Choose a folder.');
-  const manager = agent('Morgan', 'Manager', 'Ready for your first assignment', 4, { manager: true });
+  const manager = agent('', 'Manager', 'Ready for your first assignment', 4, { manager: true });
   const r = { id: uid(), ...body, path: actual, goal: '', orchestrationVersion: 1, missionStartedAt: null, workItems: [], tag: `WORKSPACE ${String(state.rooms.length + 1).padStart(2, '0')}`, agents: [manager], messages: [], skills: [...skillNames], budget: 3, paused: false };
+  claimIdentity(manager, r);
   initOffice(r); state.rooms.push(r); changed(); return { room: r };
 }));
 app.post('/api/rooms/:id/archive',wrap(async req=>{const r=roomBy(state,req.params.id);const {archived}=z.object({archived:z.boolean()}).strict().parse(req.body);if(r.capturing || r.agents.some(a=>a.turnId || startingAgents.has(a.id)))throw new Error('Pause all work before archiving this project.');r.archived=archived;if(archived)r.paused=true;record(r,archived?'Project archived':'Project restored','plan');changed();return {room:r};}));
@@ -474,7 +476,7 @@ app.post('/api/rooms/:id/dispatch', wrap(async req => {
   r.goal = b.prompt; r.paused = false; r.missionStartedAt = Date.now(); a.task = b.prompt;
   if(!b.templateId){const item=workItem(b.prompt.split('\n')[0].slice(0,120),b.prompt,{agentId:a.id,status:'queued',acceptanceCriteria:['The requested outcome is implemented','Verification evidence is attached'],requiredEvidence:['diff','test']});focusTicket(r,a,item);r.workItems.push(item);}
   if (r.demo) { event(a, 'user', b.prompt); event(a, 'update', 'Demo assignment received. In a live office, the manager delegates research, implements changes, and requests review.'); a.status = 'working'; a.progress = 10;
-    if (r.agents.filter(w => !w.manager && w.status !== 'ejected').length === 0) r.agents.push(agent('Alex', 'Research', 'Inspect the project for this assignment', 0, { status: 'working', progress: 12 }), agent('Sam', 'Review', 'Prepare verification criteria', 2, { status: 'working', progress: 8 }));
+    if (r.agents.filter(w => !w.manager && w.status !== 'ejected').length === 0) { for (const [role, task, index, progress] of [['Research', 'Inspect the project for this assignment', 0, 12], ['Review', 'Prepare verification criteria', 2, 8]]) { const worker = agent('', role, task, index, { status: 'working', progress }); r.agents.push(worker); claimIdentity(worker, r); } }
     for (const worker of r.agents.filter(w => !w.manager && w.status !== 'ejected').slice(0, 2)) r.workItems.push(workItem(worker.task, worker.task, { agentId: worker.id, status: 'working', dependsOn: [], acceptanceCriteria: ['Return a concrete finding with evidence'] }));
     if(b.templateId){applyTemplate(r,b.templateId,b.prompt);setWorkStatus(r,a,'working');}record(r,'Demo mission assigned','plan');changed();
   } else { const prompt=b.templateId?applyTemplate(r,b.templateId,b.prompt):b.prompt; initOffice(r); record(r,'Mission assigned','plan'); await sendTo(r, a, prompt); }
@@ -533,7 +535,7 @@ app.post('/api/rooms/:id/agents/:aid/replace', wrap(async req => {
     preflight();
     if (model !== 'Account default' && !connection.models.some(m => m.id === model)) throw new Error('Choose a model available to this account.');
   }
-  const packet=old.handoffPacket || handoffPacket(r,old); const next = agent(old.name, old.role, old.task, r.agents.length, { model, manager: old.manager, color: old.color, replaces: old.id, handoffPacket:packet });
+  const packet=old.handoffPacket || handoffPacket(r,old); if(!old.title)claimIdentity(old,r); const next = agent(replacementName(old, r), old.role, old.task, r.agents.length, { model, manager: old.manager, color: old.color, title: old.title, replaces: old.id, handoffPacket:packet });
   old.replacedBy = next.id; old.status = 'ejected'; old.ejectedAt ||= Date.now(); r.agents.push(next); transferInbox(r,old,next); if (next.manager) r.paused = false;
   const focused = assignedWork(r, old.id);const item=focused && focused.status!=='done' && !focused.archived?focused:null;for(const task of r.workItems.filter(t=>t.agentId===old.id && t.status!=='done' && !t.archived))task.agentId=next.id;if(item){next.currentWorkItemId=item.id;item.status='queued';item.blocker='';item.updatedAt=Date.now();}
   if(!item){next.status='idle';next.task='Ready for an assignment';record(r,`${old.name} replaced; verified work preserved`,'handoff');changed();return {agent:next};}

@@ -2,6 +2,7 @@ import { identifyEvidence, trimEvidence } from './evidence.mjs';
 import { featureUrl } from './feature-link.mjs';
 import { queueHandoff, delivered, acknowledge } from './peer-handoffs.mjs';
 import { uid, agent, workItem, event, DEFAULT_MODEL } from './domain.mjs';
+import { claimIdentity, nameRoom, replacementName } from './names.mjs';
 import { illustrativeDiff, passingTranscript, failingTranscript } from './demo-evidence.mjs';
 
 export const modes = {
@@ -112,14 +113,14 @@ export function applyTemplate(room,id,goal) {
 }
 
 export function createDemo(path) {
-  const manager=agent('Morgan','Manager','Ship project search',4,{manager:true,model:'gpt-5.6-sol',status:'idle'});
-  const research=agent('Alex','Research','Map search behavior',1,{model:'gpt-5.6-luna',status:'working'});
-  const review=agent('Sam','Reviewer','Verify the search journey',2,{model:'gpt-5.6-sol'});
+  const manager=agent('','Manager','Ship project search',4,{manager:true,model:'gpt-5.6-sol',status:'idle'});
+  const research=agent('','Research','Map search behavior',1,{model:'gpt-5.6-luna',status:'working'});
+  const review=agent('','Reviewer','Verify the search journey',2,{model:'gpt-5.6-sol'});
   const room=initOffice({id:uid(),name:'Search launch · demo',path,tag:'GUIDED DEMO',demo:true,goal:'Add instant project search with an accessible empty state.',agents:[manager,research,review],messages:[],skills:['office-manager','office-review','office-handoff'],budget:3,paused:false,orchestrationVersion:1,demoStep:0});
   const first=workItem('Map the search journey','Inspect behavior and affected files',{agentId:research.id,status:'working',files:['src/Search.tsx'],acceptanceCriteria:['Document empty and populated states'],requiredEvidence:['log'],checks:[]});
   const build=workItem('Build project search','Implement search and its empty state',{agentId:manager.id,dependsOn:[first.id],files:['src/Search.tsx'],acceptanceCriteria:['Search filters projects'],requiredEvidence:['diff','test','screenshot'],checks:[]});
   const verify=workItem('Review the finished journey','Review the changes and regression checks',{agentId:review.id,dependsOn:[build.id],files:['src/Search.tsx'],acceptanceCriteria:['Keyboard flow works'],requiredEvidence:['test'],checks:[]});
-  room.workItems=[first,build,verify]; record(room,'Mission planned: three bounded assignments','plan'); return room;
+  room.workItems=[first,build,verify]; nameRoom(room); record(room,'Mission planned: three bounded assignments','plan'); return room;
 }
 export function stepDemo(room) {
   if(!room.demo || room.demoStep==null)throw new Error('Choose the guided demo office');
@@ -131,15 +132,15 @@ export function stepDemo(room) {
   room.demoStep++;
   if(room.demoStep===1){
     room.mode='crunch';room.budget=6;
-    const specialists=[['Riley','Product · API scout','Map the search data contract','gpt-5.6-luna','src/api/search.ts'],['Jules','Quality · Test designer','Design regression coverage','gpt-5.6-sol','tests/search.test.ts'],['Nova','Quality · Accessibility','Check keyboard and focus states','gpt-5.6-terra','src/Search.tsx']];
-    for(const [name,role,title,model,file] of specialists){const worker=agent(name,role,title,room.agents.length,{model,status:'working'});room.agents.push(worker);const task=workItem(title,title,{agentId:worker.id,status:'working',files:[file],acceptanceCriteria:['Return a concrete finding'],requiredEvidence:['log'],checks:[]});room.workItems.push(task);review.dependsOn.push(task.id);event(worker,'update','Demo fixture: specialist joined the coordinated review.');}
-    const scout=room.agents.find(a=>a.name==='Nova'),tester=room.agents.find(a=>a.name==='Jules');
+    const specialists=[['Product · API scout','Map the search data contract','gpt-5.6-luna','src/api/search.ts'],['Quality · Test designer','Design regression coverage','gpt-5.6-sol','tests/search.test.ts'],['Quality · Accessibility','Check keyboard and focus states','gpt-5.6-terra','src/Search.tsx']];
+    for(const [role,taskTitle,model,file] of specialists){const worker=agent('',role,taskTitle,room.agents.length,{model,status:'working'});room.agents.push(worker);claimIdentity(worker,room);const task=workItem(taskTitle,taskTitle,{agentId:worker.id,status:'working',files:[file],acceptanceCriteria:['Return a concrete finding'],requiredEvidence:['log'],checks:[]});room.workItems.push(task);review.dependsOn.push(task.id);event(worker,'update','Demo fixture: specialist joined the coordinated review.');}
+    const scout=room.agents.find(a=>/accessib/i.test(a.role)),tester=room.agents.find(a=>/test design/i.test(a.role));
     const peer=queueHandoff(room,scout,{agentId:tester.id,workItemId:room.workItems.find(t=>t.agentId===tester.id).id,message:'Demo finding: Clear search must return focus to the input. Include the empty-state keyboard path in regression coverage.'});delivered(room,tester,[peer]);scout.talkingUntil=tester.talkingUntil=Date.now()+14000;
     record(room,'Peers share findings: accessibility informs test coverage','handoff');
     record(room,'Office expands: Product and Quality teams are online','team');
     finish(research,[receipt('log','Mapped Search.tsx and keyboard navigation.')]);build.status='working';owner(build).status='working';event(owner(build),'update','Implementing instant search and the empty state.');record(room,'Research handed off. Implementation started.','handoff');}
-  if(room.demoStep===2){const peer=room.messages.find(m=>m.kind==='finding' && m.status==='delivered');if(peer)acknowledge(room,room.agents.find(a=>a.id===peer.toId),{messageId:peer.id,note:'Demo acknowledgment: added Clear search focus retention to the test plan.'});review.blocker='Search.tsx is still owned by implementation';review.status='blocked';for(const t of [build,review])owner(t).talkingUntil=Date.now()+30000;event(owner(build),'command',failingTranscript);owner(build).plan=[{step:'Normalize query casing, rerun the search regressions, then inspect Clear search focus',status:'pending'}];try{updateWork(room,build,{status:'done'});}catch(error){room.demoGate={taskId:build.id,rejected:true,gaps:completionGaps(room,build),time:Date.now()};event(owner(build),'error','Completion gate rejected this request: '+error.message);record(room,'Completion rejected: required evidence and checks are missing','gate');};room.messages.push({id:uid(),from:'Sam',to:'Morgan',text:'Demo: review and implementation share Search.tsx. Review waits until implementation is verified.',time:Date.now()});record(room,'Shared file detected. Team meets to sequence review.','coordination');}
-  if(room.demoStep===3){const old=owner(build);old.handoffPacket=handoffPacket(room,old);old.status='ejected';old.ejectedAt=Date.now();const next=agent('Morgan','Manager',old.task,4,{manager:true,model:'gpt-6-astra',replaces:old.id,status:'working',handoffPacket:old.handoffPacket});old.replacedBy=next.id;room.agents.push(next);build.agentId=next.id;record(room,'Manager replaced. Assignment and handoff preserved.','handoff');}
+  if(room.demoStep===2){const peer=room.messages.find(m=>m.kind==='finding' && m.status==='delivered');if(peer)acknowledge(room,room.agents.find(a=>a.id===peer.toId),{messageId:peer.id,note:'Demo acknowledgment: added Clear search focus retention to the test plan.'});review.blocker='Search.tsx is still owned by implementation';review.status='blocked';for(const t of [build,review])owner(t).talkingUntil=Date.now()+30000;event(owner(build),'command',failingTranscript);owner(build).plan=[{step:'Normalize query casing, rerun the search regressions, then inspect Clear search focus',status:'pending'}];try{updateWork(room,build,{status:'done'});}catch(error){room.demoGate={taskId:build.id,rejected:true,gaps:completionGaps(room,build),time:Date.now()};event(owner(build),'error','Completion gate rejected this request: '+error.message);record(room,'Completion rejected: required evidence and checks are missing','gate');};room.messages.push({id:uid(),fromId:owner(review).id,from:owner(review).name,toId:owner(build).id,to:owner(build).name,text:'Demo: review and implementation share Search.tsx. Review waits until implementation is verified.',time:Date.now()});record(room,'Shared file detected. Team meets to sequence review.','coordination');}
+  if(room.demoStep===3){const old=owner(build);old.handoffPacket=handoffPacket(room,old);old.status='ejected';old.ejectedAt=Date.now();const next=agent(replacementName(old,room),'Manager',old.task,4,{manager:true,model:'gpt-6-astra',replaces:old.id,status:'working',title:old.title,handoffPacket:old.handoffPacket});old.replacedBy=next.id;room.agents.push(next);build.agentId=next.id;record(room,'Manager replaced. Assignment and handoff preserved.','handoff');}
   if(room.demoStep===4){for(const item of room.workItems.slice(3))finish(item,[receipt('log',item.title+' — findings captured and handed off.')]);room.agents.forEach(a=>{a.talkingUntil=0;});finish(build,[receipt('diff',illustrativeDiff),receipt('test',passingTranscript,{passed:true}),receipt('screenshot','Search preview', {artifact:'/demo-search.svg'})]);review.status='working';review.blocker='';owner(review).status='working';record(room,'Implementation verified. Review unblocked.','evidence');}
   if(room.demoStep===5){finish(review,[receipt('test','Keyboard and empty-state checks passed',{passed:true})]);record(room,'Search launch verified. Evidence ready to inspect.','complete');}
   return room;

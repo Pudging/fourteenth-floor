@@ -12,9 +12,10 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import type { Agent, Room } from './types';
+import { accessoriesFor, costumeColors } from './costume';
 
 interface Actor { beacon: THREE.Mesh<THREE.RingGeometry,THREE.MeshBasicMaterial>; workStatus: string; group: THREE.Group; home: THREE.Vector3; agent: Agent; screen: THREE.CanvasTexture; label: THREE.Sprite; signature: string; eyes: THREE.Group[]; pupils: THREE.Mesh[]; body: THREE.Group; phase: number; visiting: boolean; meetingUntil:number; route: THREE.Vector3[]; outbound: THREE.Vector3[] }
-const modelLook = (model: string) => model.toLowerCase().includes('grok') ? { label: 'GROK', color: '#8eafbb' } : model.toLowerCase().includes('cursor') ? { label: 'CURSOR', color: '#8eafbb' } : model.includes('astra') ? { label: 'ASTRA', color: '#dd8b62' } : model.includes('sol') ? { label: 'SOL', color: '#dab666' } : model.includes('terra') ? { label: 'TERRA', color: '#86afa0' } : model.includes('luna') ? { label: 'LUNA', color: '#b6a6c7' } : model.includes('5.5') ? { label: '5.5', color: '#8fa9ba' } : { label: 'AUTO', color: '#a0b6a7' };
+const modelLook = (model: string) => model.toLowerCase().includes('grok') ? { label: 'GROK', color: '#3d8eb8' } : model.toLowerCase().includes('cursor') ? { label: 'CURSOR', color: '#3d8eb8' } : model.includes('astra') ? { label: 'ASTRA', color: '#e06a3c' } : model.includes('sol') ? { label: 'SOL', color: '#e2b043' } : model.includes('terra') ? { label: 'TERRA', color: '#3d9a68' } : model.includes('luna') ? { label: 'LUNA', color: '#9a62b8' } : model.includes('5.5') ? { label: '5.5', color: '#3d6eae' } : { label: 'AUTO', color: '#3a9a8c' };
 function visibleAgents(room: Room) {
   const available = room.agents.filter(a => a.status !== 'ejected');
   const manager = available.filter(a => a.manager).at(-1);
@@ -73,7 +74,7 @@ export class OfficeScene {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.0;
+    this.renderer.toneMappingExposure = 1.04;
     this.renderer.xr.enabled = true;
     this.renderer.setClearColor('#e3eae3');
     // The city supplies its own atmospheric depth; keep the interior clear at overview distances.
@@ -90,17 +91,18 @@ export class OfficeScene {
     this.controls.target.set(-.4, .7, -.3); this.controls.enableDamping = true; this.controls.dampingFactor = .08;
     this.controls.minDistance = 16; this.controls.maxDistance = 52; this.controls.maxPolarAngle = Math.PI / 2.25; this.controls.minPolarAngle = .2;
     this.controls.enablePan = true; this.controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
-    const ambient = new THREE.HemisphereLight('#e3edf5', '#929080', 1.25); this.scene.add(ambient);
-    const sun = new THREE.DirectionalLight('#fff0da', 2.8); sun.position.set(-90, 72, -75); sun.castShadow = true;
+    const ambient = new THREE.HemisphereLight('#f2f6fb', '#b7b89e', 1.32); this.scene.add(ambient);
+    const sun = new THREE.DirectionalLight('#fff2dc', 2.85); sun.position.set(-90, 72, -75); sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048); sun.shadow.camera.left = -95; sun.shadow.camera.right = 95; sun.shadow.camera.top = 95; sun.shadow.camera.bottom = -95; sun.shadow.camera.far = 330; sun.shadow.normalBias = .04; sun.shadow.bias = -.0003;
-    this.scene.add(sun); this.scene.add(new THREE.DirectionalLight('#d3e7e8', .7));
+    const fill = new THREE.DirectionalLight('#e7f1f4', .72); fill.position.set(28, 20, 34);
+    this.scene.add(sun); this.scene.add(fill);
     this.city.bakeReflections(this.renderer,this.scene);
     this.composer = new EffectComposer(this.renderer);
     this.composer.setPixelRatio(1);
     this.composer.renderTarget1.samples=4;this.composer.renderTarget2.samples=4;
     this.composer.addPass(new RenderPass(this.scene,this.camera));
     this.occlusion = new SSAOPass(this.scene,this.camera,640,400,24);
-    this.occlusion.kernelRadius = 1.15; this.occlusion.minDistance = .00003; this.occlusion.maxDistance = .001;
+    this.occlusion.kernelRadius = .55; this.occlusion.minDistance = .00003; this.occlusion.maxDistance = .001;
     const renderOcclusion = this.occlusion.render.bind(this.occlusion);
     this.occlusion.render = (...args) => {
       // Glazing and sky must not become opaque occluders in the normal pass.
@@ -145,6 +147,9 @@ export class OfficeScene {
   cylinder(parent: THREE.Object3D, x: number, y: number, z: number, r: number, h: number, color: string, bottom = r) {
     const mesh = new THREE.Mesh(new THREE.CylinderGeometry(r, bottom, h, 16), this.mat(color)); mesh.position.set(x, y, z); mesh.castShadow = true; mesh.receiveShadow = true; parent.add(mesh); return mesh;
   }
+  sphere(parent: THREE.Object3D, x: number, y: number, z: number, r: number, color: string, sy = 1) {
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), this.mat(color, .62)); mesh.position.set(x, y, z); mesh.scale.y = sy; mesh.castShadow = true; parent.add(mesh); return mesh;
+  }
   textTexture(title: string, subtitle: string, color = '#24493d', screen = false, body = '', progress = 0, hint = 'CLICK TO INSPECT WORK') {
     const canvas = document.createElement('canvas'); canvas.width = screen ? 768 : 512; canvas.height = screen ? 480 : 144;
     const ctx = canvas.getContext('2d')!; ctx.fillStyle = screen ? '#182d29' : '#f6f4e9'; ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -159,8 +164,8 @@ export class OfficeScene {
       if (y <= 360) ctx.fillText(line, 24, y);
       ctx.fillStyle = '#35554a'; ctx.fillRect(24, 407, 716, 5); ctx.fillStyle = color; ctx.fillRect(24, 407, 716 * Math.max(0, Math.min(100,progress)) / 100, 5); ctx.fillStyle = '#9cbbab'; ctx.font = '16px sans-serif'; ctx.fillText(hint, 24, 450);
     } else {
-      ctx.fillStyle = color; ctx.beginPath(); ctx.arc(31, 49, 8, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#233b32'; ctx.font = 'bold 32px sans-serif'; ctx.fillText(title, 53, 61);
-      ctx.fillStyle = '#5e6f63'; ctx.font = '23px sans-serif'; ctx.fillText(subtitle, 25, 110);
+      ctx.fillStyle = color; ctx.beginPath(); ctx.arc(31, 46, 8, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#233b32'; ctx.font = 'bold 36px sans-serif'; ctx.fillText(title.slice(0, 22), 53, 58);
+      ctx.fillStyle = '#5e6f63'; ctx.font = '18px sans-serif'; ctx.fillText(subtitle.slice(0, 36), 25, 104);
     }
     const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; texture.anisotropy = Math.min(this.renderer.capabilities.getMaxAnisotropy(), 8); return texture;
   }
@@ -187,7 +192,7 @@ export class OfficeScene {
     this.box(this.world, x, 1.27, z - .24, .65, .06, .4, '#4c5b51', .03); this.box(this.world, x, 1.54, z - .3, .085, .55, .08, '#4c5b51');
     const monitor = this.box(this.world, x, 1.95, z - .27, 1.7, 1.02, .11, '#273c33', .045);
     if(a){monitor.userData.agentId = a.id; this.clickable.push(monitor);}
-    const texture = this.textTexture(a?.name || 'AVAILABLE DESK', a?.role || 'Ready for the next assignment', a?.color || '#789288', true, a?.task || 'Research, implementation support and independent review.',0,a?'CLICK TO INSPECT WORK':'NO AGENT ASSIGNED');
+    const texture = this.textTexture(a?.name || 'AVAILABLE DESK', a?.title || a?.role || 'Ready for the next assignment', a?.color || '#789288', true, a?.task || 'Research, implementation support and independent review.',0,a?'CLICK TO INSPECT WORK':'NO AGENT ASSIGNED');
     const screen = new THREE.Mesh(new THREE.PlaneGeometry(1.58, .89), new THREE.MeshBasicMaterial({ map: texture })); screen.position.set(x, 1.95, z - .207); this.world.add(screen);if(a){screen.userData.agentId = a.id;this.clickable.push(screen);}else (screen.material as THREE.MeshBasicMaterial).color.set('#789087');
     this.box(this.world, x - .1, 1.27, z + .46, 1.0, .045, .31, '#dadfd3', .015);
     for (let row = 0; row < 3; row++) for (let col = 0; col < 11; col++) this.box(this.world, x - .5 + col * .08, 1.30, z + .36 + row * .085, .055, .012, .05, '#aab6a8');
@@ -202,7 +207,7 @@ export class OfficeScene {
     this.box(this.world,x-width/2+.45,1.82,z-.45,.46,.07,.19,'#dccbae',.025);
     if(!a)return;
     const avatar = this.avatar(a); avatar.position.set(x, 0, z + 1.12); this.world.add(avatar);
-    const label = this.sign(a.name, `${a.role} · ${a.status}`, x, 3.15, z + .4, 2.65); label.userData.agentId = a.id; this.clickable.push(label);
+    const label = this.sign(a.name, a.title || a.role, x, 3.15, z + .4, 2.65); label.userData.agentId = a.id; this.clickable.push(label);
     const beacon=new THREE.Mesh(new THREE.RingGeometry(.72,.8,48),new THREE.MeshBasicMaterial({color:'#477ead',transparent:true,opacity:.85,side:THREE.DoubleSide,depthWrite:false}));
     beacon.rotation.x=-Math.PI/2;beacon.position.set(x,.09,z+1.12);beacon.userData.agentId=a.id;this.world.add(beacon);
     this.actors.set(a.id, { beacon,workStatus:'queued',group: avatar, home: avatar.position.clone(), agent: a, screen: texture, label, signature: '', eyes: avatar.userData.eyes, pupils: avatar.userData.pupils, body: avatar.userData.body, phase: x * 2.17 + z * .6, visiting: false, meetingUntil:0, route: [], outbound: [] });
@@ -210,9 +215,13 @@ export class OfficeScene {
   avatar(a: Agent) {
     const g = new THREE.Group(); const body = new THREE.Group(); body.position.y = 1.5; g.add(body);
     const look = modelLook(a.effectiveModel || a.model);
-    // A true sphere: expression comes only from eyes and rotation.
+    // A true sphere: expression comes from the eyes, and the costume marks the role.
     const geometry = new THREE.SphereGeometry(.5, 40, 28);
-    const skin = new THREE.MeshPhysicalMaterial({ color: look.color, roughness: .43, clearcoat: .18, clearcoatRoughness: .5 });
+    const skin = new THREE.MeshStandardMaterial({ color: look.color, roughness: .48, metalness: 0, emissive: look.color, emissiveIntensity: .04, envMapIntensity: 0 });
+    skin.customProgramCacheKey = () => 'fourteenth-blob-v3';
+    skin.onBeforeCompile = shader => {
+      shader.fragmentShader = shader.fragmentShader.replace('#include <opaque_fragment>', 'outgoingLight = mix(outgoingLight, diffuseColor.rgb, .28);\n#include <opaque_fragment>');
+    };
     const blob = new THREE.Mesh(geometry, skin); blob.castShadow = true; blob.receiveShadow = true; body.add(blob); blob.userData.agentId = a.id; this.clickable.push(blob);
     const eyes: THREE.Group[] = [], pupils: THREE.Mesh[] = [];
     for (const side of [-1, 1]) {
@@ -222,12 +231,40 @@ export class OfficeScene {
       const glint = new THREE.Mesh(new THREE.SphereGeometry(.014, 8, 6), new THREE.MeshBasicMaterial({ color: '#ffffef' })); glint.position.set(-.017, .019, .025); pupil.add(glint);
     }
     const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 80;
-    const ctx = canvas.getContext('2d')!; ctx.clearRect(0, 0, 256, 80); ctx.fillStyle = '#2c3e37'; ctx.textAlign = 'center'; ctx.font = 'bold 48px sans-serif'; ctx.fillText(look.label, 128, 58);
+    const ctx = canvas.getContext('2d')!; ctx.clearRect(0, 0, 256, 80); ctx.fillStyle = '#2c3e37'; ctx.textAlign = 'center'; ctx.font = 'bold 48px sans-serif'; ctx.fillText((a.name || look.label).slice(0, 12), 128, 58);
     const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
     const badge = new THREE.Mesh(new THREE.PlaneGeometry(.4, .13), new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false })); badge.position.set(0, -.16, .481); body.add(badge);
     const backBadge = badge.clone(); backBadge.rotation.y = Math.PI; backBadge.position.z = -.481; body.add(backBadge);
+    this.wear(g, body, a);
     g.userData.eyes = eyes; g.userData.pupils = pupils; g.userData.body = body;
     return g;
+  }
+  wear(outer: THREE.Group, body: THREE.Group, agent: Agent) {
+    const { kind, hat, bow, coffee } = accessoriesFor(agent);
+    const colors = costumeColors[kind];
+    if (hat) {
+      const crown = new THREE.Group(); crown.position.y = 1.92; outer.add(crown);
+      const brim = (r = .42, y = .02) => this.cylinder(crown, 0, y, 0, r, .04, colors.hat);
+      if (kind === 'manager') { brim(.46); this.cylinder(crown, 0, .18, 0, .2, .28, colors.hat, .24); this.cylinder(crown, 0, .08, 0, .252, .05, colors.trim); }
+      else if (kind === 'research') { this.sphere(crown, 0, .12, 0, .28, colors.hat, .5); this.box(crown, 0, .03, .3, .38, .03, .22, colors.hat); }
+      else if (kind === 'build') { brim(.48); this.sphere(crown, 0, .14, 0, .34, colors.hat, .46); this.box(crown, 0, .16, .32, .08, .05, .04, colors.trim); }
+      else if (kind === 'test') { this.sphere(crown, 0, .12, 0, .28, colors.hat, .48); this.sphere(crown, -.26, 0, 0, .1, colors.hat, 1.35); this.sphere(crown, .26, 0, 0, .1, colors.hat, 1.35); this.box(crown, 0, .03, .28, .3, .025, .16, colors.trim); }
+      else { this.cylinder(crown, 0, .1, 0, .24, .14, colors.hat); const visor = this.box(crown, 0, .05, .26, .44, .025, .22, colors.hat); visor.rotation.x = -.35; this.cylinder(crown, 0, .16, 0, .248, .035, colors.trim); }
+    }
+    if (bow) {
+      const tie = new THREE.Group(); tie.position.set(0, -.36, .42); tie.scale.setScalar(kind === 'manager' || kind === 'review' ? 1.15 : 1); body.add(tie);
+      const left = this.sphere(tie, -.12, 0, 0, .09, colors.bow, .62); left.scale.x = 1.5; left.rotation.z = .55;
+      const right = this.sphere(tie, .12, 0, 0, .09, colors.bow, .62); right.scale.x = 1.5; right.rotation.z = -.55;
+      this.sphere(tie, 0, 0, .03, .045, colors.bow);
+    }
+    if (coffee) {
+      const cup = new THREE.Group(); cup.position.set(.48, -.02, .16); cup.rotation.z = -.15; body.add(cup);
+      this.cylinder(cup, 0, 0, 0, .075, .2, '#f3eee4', .06);
+      this.cylinder(cup, 0, .09, 0, .062, .025, '#4a3428');
+      this.cylinder(cup, 0, -.02, 0, .078, .05, '#c4785a');
+      const handle = new THREE.Mesh(new THREE.TorusGeometry(.05, .012, 6, 12, Math.PI), this.mat('#f3eee4', .55));
+      handle.position.set(.08, 0, 0); handle.rotation.y = Math.PI / 2; handle.castShadow = true; cup.add(handle);
+    }
   }
   clearWorld() {
     const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>(), textures = new Set<THREE.Texture>();
@@ -350,7 +387,7 @@ export class OfficeScene {
   update(room: Room, selected: string | null, includeTeam=true) {
     this.room = room; this.selected = selected;
     const visible = visibleAgents(room);
-    if (this.roomId !== room.id || this.actors.size!==visible.length || visible.some(a => !this.actors.has(a.id) || (this.actors.get(a.id)!.agent.effectiveModel || this.actors.get(a.id)!.agent.model)!==(a.effectiveModel || a.model))) this.build(room);
+    if (this.roomId !== room.id || this.actors.size!==visible.length || visible.some(a => !this.actors.has(a.id) || (this.actors.get(a.id)!.agent.effectiveModel || this.actors.get(a.id)!.agent.model)!==(a.effectiveModel || a.model) || this.actors.get(a.id)!.agent.name!==a.name || this.actors.get(a.id)!.agent.title!==a.title || this.actors.get(a.id)!.agent.role!==a.role)) this.build(room);
     for (const a of room.agents) {
       const actor = this.actors.get(a.id); if (!actor) continue; actor.agent = a;
       const task=(a.currentWorkItemId?room.workItems?.find(t=>t.id===a.currentWorkItemId):room.workItems?.find(t=>t.agentId===a.id && t.status!=='done')) || room.workItems?.find(t=>t.agentId===a.id);
@@ -359,13 +396,13 @@ export class OfficeScene {
       const labels:Record<string,string>={ready:'READY',working:'WORKING',blocked:'BLOCKED',review:'REVIEW',done:'VERIFIED',queued:'QUEUED'};
       actor.workStatus=status;actor.beacon.material.color.set(colors[status]);
       const checks=task?.checks?.filter(c=>c.passed).length || 0;
-      const sig = [a.status,a.effectiveModel,a.model,status,task?.evidence.length,checks,a.events.at(-1)?.text,a.task,selected===a.id].join('|');
+      const sig = [a.name,a.title,a.status,a.effectiveModel,a.model,status,task?.evidence.length,checks,a.events.at(-1)?.text,a.task,selected===a.id].join('|');
       if (sig !== actor.signature) {
         actor.signature = sig;
         const receiptLine=task ? `${task.evidence.length} evidence items / ${checks} of ${task.acceptanceCriteria.length} checks. ` : '';
-        const replacement = this.textTexture(a.name, `${labels[status]} / ${a.role}`, colors[status], true, (task?.title || a.task).split('\n')[0].slice(0,100)+'\n'+(task?.blocker || a.events.filter(e=>e.kind==='update').at(-1)?.text || receiptLine).replace(/\s+/g,' ').slice(0,180),a.progress);
+        const replacement = this.textTexture(a.name, `${labels[status]} / ${a.title || a.role}`, colors[status], true, (task?.title || a.task).split('\n')[0].slice(0,100)+'\n'+(task?.blocker || a.events.filter(e=>e.kind==='update').at(-1)?.text || receiptLine).replace(/\s+/g,' ').slice(0,180),a.progress);
         actor.screen.image = replacement.image; actor.screen.needsUpdate = true; replacement.dispose();
-        const material=actor.label.material as THREE.SpriteMaterial;material.map?.dispose();material.map=this.textTexture(a.name,`${labels[status]}  /  ${task?.evidence.length || 0} receipts`,colors[status]);material.needsUpdate=true;
+        const material=actor.label.material as THREE.SpriteMaterial;material.map?.dispose();material.map=this.textTexture(a.name, a.title || labels[status], colors[status]);material.needsUpdate=true;
       }
 
     }

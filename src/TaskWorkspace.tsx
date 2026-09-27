@@ -3,6 +3,7 @@ import type { ReviewState, Room, WorkItem } from './types';
 import { officeApi, WorkDetail } from './Operations';
 import { HandoffsPanel } from './HandoffsPanel';
 import { TicketForm } from './TicketForm';
+import { agentLine } from './identity';
 export type Action=(fn:()=>Promise<unknown>,success?:string)=>Promise<void>;
 
 export function TaskWorkspace({room,itemId,connected,busy,action,onAgent,onTask,onConnect,onInbox}:{room:Room;itemId:string|null;connected:boolean;busy:boolean;action:Action;onAgent:(id:string)=>void;onTask:(id:string)=>void;onConnect:()=>void;onInbox:()=>void}) {
@@ -20,8 +21,8 @@ export function TaskWorkspace({room,itemId,connected,busy,action,onAgent,onTask,
     {!item.archived && item.status!=='done' && <section className="next-action" aria-label="Next step">
       {owner?.status==='ejected'?<><b>Owner needs replacing</b><button className="secondary" onClick={()=>onAgent(owner.replacedBy || owner.id)}>Open {owner.replacedBy?'replacement':'desk'}</button></>:
       owner?.provider==='cursor'?<><b>Managed in Cursor</b><button className="secondary" onClick={()=>onAgent(owner.id)}>Open Cursor desk</button></>:
-      active && owner?.currentWorkItemId && owner.currentWorkItemId!==item.id?<><b>{owner.name} is working on another ticket</b><button className="secondary" onClick={()=>onTask(owner.currentWorkItemId!)}>Open active ticket</button></>:
-      active?<><b>{owner?.status==='approval'?'Waiting for your approval':`${owner?.name} is working`}</b><button className="secondary" disabled={busy} onClick={owner?.status==='approval'?onInbox:()=>action(()=>officeApi(`/rooms/${room.id}/agents/${owner!.id}/stop`,{}),'Agent paused')}>{owner?.status==='approval'?'Review request':'Pause agent'}</button></>:
+      active && owner?.currentWorkItemId && owner.currentWorkItemId!==item.id?<><b>{agentLine(owner)} is working on another ticket</b><button className="secondary" onClick={()=>onTask(owner.currentWorkItemId!)}>Open active ticket</button></>:
+      active?<><b>{owner?.status==='approval'?'Waiting for your approval':`${agentLine(owner)} is working`}</b><button className="secondary" disabled={busy} onClick={owner?.status==='approval'?onInbox:()=>action(()=>officeApi(`/rooms/${room.id}/agents/${owner!.id}/stop`,{}),'Agent paused')}>{owner?.status==='approval'?'Review request':'Pause agent'}</button></>:
       !signedIn?<><b>Ready when you connect</b><button className="primary" onClick={onConnect}>Connect Codex</button></>:
       room.paused?<><b>This office is paused</b><button className="primary" disabled={busy} onClick={()=>action(()=>officeApi(`/rooms/${room.id}/resume`,{}),'Office resumed')}>Resume office</button></>:
       !owner?<><label>Who should handle it?<select value={role} onChange={e=>setRole(e.target.value)}><option value="Implementation">Manager · implement</option><option value="Research">Specialist · research</option><option value="Review">Specialist · review</option></select></label>{role==='Implementation' && manager?.turnId?<><p>Manager is busy with another ticket.</p><button className="secondary" onClick={()=>onAgent(manager.id)}>Open manager</button></>:<button className="primary" disabled={busy} onClick={()=>action(()=>officeApi(endpoint+'/assign',{role}),'Ticket assigned')}>{role==='Implementation'?'Send to manager':'Assign specialist'}</button>}</>:

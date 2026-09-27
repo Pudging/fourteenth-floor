@@ -3,6 +3,7 @@ import { ArrowRight, Check, GitBranch, Layers, Play, ShieldCheck } from 'lucide-
 import type { Room, OfficeTemplate } from './types';
 import { taskLayout } from './task-layout';
 import { workColors, workLabels } from './Operations';
+import { agentLine, agentSpeech, modelLabel } from './identity';
 import './compact-office.css';
 
 export function CompactOffice({ room, templates, selected, historical, busy, onTask, onTemplates, onAdvance, onReplay }: {
@@ -41,10 +42,10 @@ export function CompactOffice({ room, templates, selected, historical, busy, onT
         {graph.nodes.map(({ item, x, y }) => {
           const owner = room.agents.find(agent => agent.id === item.agentId);
           const checks = item.checks?.filter(check => check.passed).length || 0;
-          return <button key={item.id} className={`graph-task ${selected === item.id ? 'selected' : ''}`} style={{ left: x, top: y }} aria-label={`${item.title}, ${workLabels[item.status]}, ${owner?.name || 'unassigned'}`} aria-pressed={selected === item.id} onClick={() => onTask(item.id)} disabled={historical}>
+          return <button key={item.id} className={`graph-task ${selected === item.id ? 'selected' : ''}`} style={{ left: x, top: y }} aria-label={`${item.title}. ${workLabels[item.status]}. ${owner ? agentSpeech(owner) : 'Unassigned'}`} aria-pressed={selected === item.id} onClick={() => onTask(item.id)} disabled={historical}>
             <span className="graph-state" style={{ color: workColors[item.status] }}>{item.status === 'done' ? <Check size={12}/> : <i/>}{workLabels[item.status]}{room.paused && item.status !== 'done' && <small> · Paused</small>}</span>
             <b className="graph-title" title={item.title}>{item.title}</b>
-            <span className="graph-owner"><i className="map-sphere" style={{ background: owner?.color || '#b4c5b8' }} aria-hidden="true"><i/><i/></i><span>{owner?.name || 'Unassigned'}<small>{owner?.effectiveModel || owner?.model || 'No model assigned'}</small></span><span className="graph-checks">{checks}/{item.acceptanceCriteria.length}<small>checks</small></span></span>
+            <span className="graph-owner"><i className="map-sphere" style={{ background: owner?.color || '#b4c5b8' }} aria-hidden="true"><i/><i/></i><span>{agentLine(owner)}<small>{owner ? modelLabel(owner.effectiveModel || owner.model) : 'No model assigned'}</small></span><span className="graph-checks">{checks}/{item.acceptanceCriteria.length}<small>checks</small></span></span>
           </button>;
         })}
       </div> : <div className="map-empty"><GitBranch size={30}/><h2>One goal. A connected team.</h2><p>Choose an office template and assign an outcome. Its tasks and handoffs will appear here.</p><button className="primary" onClick={onTemplates}>Choose a template <ArrowRight size={15}/></button></div>}
